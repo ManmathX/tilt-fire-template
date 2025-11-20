@@ -68,6 +68,7 @@ export default function App() {
           require("./assets/What a noob - Sound Effect.mp3")
         );
         gameOverSoundRef.current = goSound;
+        await goSound.setIsLoopingAsync(true);
       } catch (error) {
         console.error("Error loading sound:", error);
       }
@@ -216,6 +217,10 @@ export default function App() {
     setGameOver(false);
     gameSpeedRef.current = GAME_SPEED_INITIAL;
     lastShotRef.current = 0;
+    // Stop game over sound
+    if (gameOverSoundRef.current) {
+      gameOverSoundRef.current.stopAsync();
+    }
     // Restart background music
     if (soundRef.current) {
       soundRef.current.playAsync();
