@@ -1,39 +1,44 @@
 import { StatusBar } from "expo-status-bar";
-import { TouchableWithoutFeedback } from "react-native";
-import { useState, useEffect } from "react";
+import { TouchableWithoutFeedback, Pressable } from "react-native";
+import { useState, useEffect, useRef } from "react";
 import { View, StyleSheet, Dimensions, Text } from "react-native";
 import { Accelerometer } from "expo-sensors";
+import { Video } from "expo-av";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
 const PLAYER_WIDTH = 50;
 const PLAYER_HEIGHT = 50;
 
-const BULLET_WIDTH = 10;
-const BULLET_HEIGHT = 20;
+const BULLET_WIDTH = 8;
+const BULLET_HEIGHT = 15;
 
-const BLOCK_WIDTH = 40;
-const BLOCK_HEIGHT = 40;
+const ENEMY_WIDTH = 45;
+const ENEMY_HEIGHT = 45;
+
+const GAME_SPEED_INITIAL = 3;
+const ENEMY_SPAWN_RATE = 1500; // ms
 
 export default function App() {
-  const [playerX, setPlayerX] = useState(
-    (screenWidth - PLAYER_WIDTH) / 2
-  );
-
+  const [playerX, setPlayerX] = useState((screenWidth - PLAYER_WIDTH) / 2);
   const [bullets, setBullets] = useState([]);
+  const [enemies, setEnemies] = useState([]);
+  const [score, setScore] = useState(0);
+  const [gameOver, setGameOver] = useState(false);
 
-  // Accelerometer control
+  const gameSpeedRef = useRef(GAME_SPEED_INITIAL);
+  const lastShotRef = useRef(0);
+
   useEffect(() => {
     Accelerometer.setUpdateInterval(16);
 
     const subscription = Accelerometer.addListener(({ x }) => {
-      const move = x * 20;
+      const move = x * 25;
 
       setPlayerX((prevX) => {
         const newX = prevX + move;
         const minX = 0;
         const maxX = screenWidth - PLAYER_WIDTH;
-
         return Math.max(minX, Math.min(newX, maxX));
       });
     });
@@ -41,38 +46,140 @@ export default function App() {
     return () => subscription.remove();
   }, []);
 
-useEffect(() => {
+  useEffect(() => {
+    if (gameOver) return;
+
     const interval = setInterval(() => {
       setBullets((prevBullets) =>
         prevBullets
+          .filter((bullet) => bullet.y > 0)
           .map((bullet) => ({
             ...bullet,
-            y: bullet.y - 10,
+            y: bullet.y - 15,
           }))
       );
     }, 16);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [gameOver]);
+
+  useEffect(() => {
+    if (gameOver) return;
+
+    const spawnEnemy = setInterval(() => {
+      const newEnemy = {
+        id: Date.now().toString(),
+        x: Math.random() * (screenWidth - ENEMY_WIDTH),
+        y: -ENEMY_HEIGHT,
+        health: 1,
+      };
+      setEnemies((prev) => [...prev, newEnemy]);
+    }, ENEMY_SPAWN_RATE);
+
+    return () => clearInterval(spawnEnemy);
+  }, [gameOver]);
+
+  useEffect(() => {
+    if (gameOver) return;
+
+    const moveEnemies = setInterval(() => {
+      setEnemies((prevEnemies) => {
+        return prevEnemies
+          .map((enemy) => ({
+            ...enemy,
+            y: enemy.y + gameSpeedRef.current,
+          }))
+          .filter((enemy) => {
+            if (enemy.y >= screenHeight) {
+              setGameOver(true);
+              return false;
+            }
+            return true;
+          });
+      });
+    }, 16);
+
+    return () => clearInterval(moveEnemies);
+  }, [gameOver]);
+
+  useEffect(() => {
+    if (gameOver) return;
+
+    const checkHits = setInterval(() => {
+      setBullets((prevBullets) => {
+        let updatedBullets = [...prevBullets];
+
+        setEnemies((prevEnemies) => {
+          let updatedEnemies = [...prevEnemies];
+
+          for (let i = updatedBullets.length - 1; i >= 0; i--) {
+            const bullet = updatedBullets[i];
+
+            for (let j = updatedEnemies.length - 1; j >= 0; j--) {
+              const enemy = updatedEnemies[j];
+
+              if (
+                bullet.x < enemy.x + ENEMY_WIDTH &&
+                bullet.x + BULLET_WIDTH > enemy.x &&
+                bullet.y < enemy.y + ENEMY_HEIGHT &&
+                bullet.y + BULLET_HEIGHT > enemy.y
+              ) {
+                updatedBullets.splice(i, 1);
+                updatedEnemies.splice(j, 1);
+                setScore((s) => s + 10);
+
+                if (score % 100 === 0 && score > 0) {
+                  gameSpeedRef.current += 0.5;
+                }
+
+                break;
+              }
+            }
+          }
+
+          return updatedEnemies;
+        });
+
+        return updatedBullets;
+      });
+    }, 16);
+
+    return () => clearInterval(checkHits);
+  }, [gameOver, score]);
+
   const handleBullet = () => {
+    const now = Date.now();
+    if (now - lastShotRef.current < 200) return;
+    lastShotRef.current = now;
+
     const bullet = {
       id: Date.now().toString(),
       x: playerX + (PLAYER_WIDTH - BULLET_WIDTH) / 2,
-      y: screenHeight - PLAYER_HEIGHT - 40, // starting near player
+      y: screenHeight - PLAYER_HEIGHT - 40,
     };
 
     setBullets((prev) => [...prev, bullet]);
   };
 
+  const handleRestart = () => {
+    setPlayerX((screenWidth - PLAYER_WIDTH) / 2);
+    setBullets([]);
+    setEnemies([]);
+    setScore(0);
+    setGameOver(false);
+    gameSpeedRef.current = GAME_SPEED_INITIAL;
+    lastShotRef.current = 0;
+  };
+
   return (
     <TouchableWithoutFeedback onPress={handleBullet}>
       <View style={styles.container}>
-        {/* Player */}
-        <View style={[styles.player, { left: playerX }]} />
+        <View style={styles.hud}>
+          <Text style={styles.hudText}>Score: {score}</Text>
+        </View>
 
-        <Text style={styles.instruction}>Tilt your phone to move</Text>
+        <View style={[styles.player, { left: playerX, bottom: 20 }]} />
 
-        {/* Bullets */}
         {bullets.map((bullet) => (
           <View
             key={bullet.id}
@@ -83,7 +190,42 @@ useEffect(() => {
           />
         ))}
 
-        <StatusBar style="auto" />
+        {enemies.map((enemy) => (
+          <View
+            key={enemy.id}
+            style={[
+              styles.enemy,
+              { left: enemy.x, top: enemy.y },
+            ]}
+          />
+        ))}
+
+        {gameOver && (
+          <View style={styles.gameOverOverlay}>
+            <Video
+              source={require("./assets/28993-372617967.mp4")}
+              rate={1.0}
+              volume={1.0}
+              isMuted={false}
+              resizeMode="cover"
+              shouldPlay
+              isLooping
+              style={styles.gameOverVideo}
+            />
+            <View style={styles.gameOverContent}>
+        
+              <Text style={styles.finalScore}>Final Score: {score}</Text>
+              <Pressable
+                style={styles.restartButton}
+                onPress={handleRestart}
+              >
+                <Text style={styles.restartButtonText}>RESTART</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        <StatusBar style="light" />
       </View>
     </TouchableWithoutFeedback>
   );
@@ -92,54 +234,123 @@ useEffect(() => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#000",
+    backgroundColor: "#0a0e27",
     justifyContent: "flex-end",
     alignItems: "center",
-    paddingBottom: 60,
+    overflow: "hidden",
+  },
+
+  hud: {
+    position: "absolute",
+    top: 20,
+    left: 20,
+    right: 20,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    zIndex: 100,
+  },
+
+  hudText: {
+    color: "#00ff88",
+    fontSize: 16,
+    fontWeight: "bold",
+    fontFamily: "Courier",
+    textShadowColor: "#00ff88",
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 5,
   },
 
   player: {
     position: "absolute",
-    bottom: 20,
     width: PLAYER_WIDTH,
     height: PLAYER_HEIGHT,
-    backgroundColor: "#FFF",
+    backgroundColor: "#00ff88",
     borderWidth: 2,
-    borderColor: "#000",
-  },
-
-  instruction: {
-    position: "absolute",
-    top: 70,
-    color: "#fff",
-    fontFamily: "Courier",
-    fontSize: 14,
+    borderColor: "#00ff88",
+    borderRadius: 4,
+    shadowColor: "#00ff88",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 8,
   },
 
   bullet: {
     position: "absolute",
     width: BULLET_WIDTH,
     height: BULLET_HEIGHT,
-    backgroundColor: "#FFF",
-    borderWidth: 1,
-    borderColor: "#000",
+    backgroundColor: "#ffff00",
+    borderRadius: 2,
+    shadowColor: "#ffff00",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 6,
   },
 
-  fallingBlock: {
+  enemy: {
     position: "absolute",
-    width: BLOCK_WIDTH,
-    height: BLOCK_HEIGHT,
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "black",
+    width: ENEMY_WIDTH,
+    height: ENEMY_HEIGHT,
+    backgroundColor: "#ff3366",
+    borderWidth: 2,
+    borderColor: "#ff1144",
+    borderRadius: 4,
+    shadowColor: "#ff3366",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 8,
+  },
+
+  gameOverOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 200,
+  },
+
+  gameOverVideo: {
+    width: "75%",
+    aspectRatio: 16 / 9,
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+
+  gameOverContent: {
+    marginTop: 24,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 201,
   },
 
   gameOverText: {
-    position: "absolute",
-    top: screenHeight / 2 - 40,
-    color: "#FFF",
-    fontSize: 24,
-    fontWeight: "bold",
-    fontFamily: "Courier",
+    color: "#fff",
+    fontSize: 52,
+    fontWeight: "900",
+    marginBottom: 30,
+    letterSpacing: 2,
+  },
+
+  finalScore: {
+    color: "#fff",
+    fontSize: 32,
+    fontWeight: "600",
+    marginBottom: 50,
+  },
+
+  restartButton: {
+    paddingHorizontal: 50,
+    paddingVertical: 16,
+    backgroundColor: "#fff",
+    borderRadius: 6,
+  },
+
+  restartButtonText: {
+    color: "#0a0e27",
+    fontSize: 18,
+    fontWeight: "700",
+    letterSpacing: 1,
   },
 });
