@@ -1,9 +1,9 @@
 import { StatusBar } from "expo-status-bar";
 import { TouchableWithoutFeedback, Pressable } from "react-native";
 import { useState, useEffect, useRef } from "react";
-import { View, StyleSheet, Dimensions, Text } from "react-native";
+import { View, StyleSheet, Dimensions, Text, Image } from "react-native";
 import { Accelerometer } from "expo-sensors";
-import { Video } from "expo-av";
+import { Video, Audio } from "expo-av";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -28,6 +28,8 @@ export default function App() {
 
   const gameSpeedRef = useRef(GAME_SPEED_INITIAL);
   const lastShotRef = useRef(0);
+  const soundRef = useRef(null);
+  const gameOverSoundRef = useRef(null);
 
   useEffect(() => {
     Accelerometer.setUpdateInterval(16);
@@ -44,6 +46,40 @@ export default function App() {
     });
 
     return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    const loadSound = async () => {
+      try {
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+        });
+        const { sound: bgSound } = await Audio.Sound.createAsync(
+          require("./assets/VHS LOGOS - SONY.mp3")
+        );
+        soundRef.current = bgSound;
+        await bgSound.setIsLoopingAsync(true);
+        await bgSound.playAsync();
+
+        const { sound: goSound } = await Audio.Sound.createAsync(
+          require("./assets/What a noob - Sound Effect.mp3")
+        );
+        gameOverSoundRef.current = goSound;
+      } catch (error) {
+        console.error("Error loading sound:", error);
+      }
+    };
+
+    loadSound();
+
+    return () => {
+      if (soundRef.current) {
+        soundRef.current.unloadAsync();
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -100,6 +136,17 @@ export default function App() {
     }, 16);
 
     return () => clearInterval(moveEnemies);
+  }, [gameOver]);
+
+  useEffect(() => {
+    if (gameOver) {
+      if (soundRef.current) {
+        soundRef.current.stopAsync();
+      }
+      if (gameOverSoundRef.current) {
+        gameOverSoundRef.current.playAsync();
+      }
+    }
   }, [gameOver]);
 
   useEffect(() => {
@@ -169,6 +216,10 @@ export default function App() {
     setGameOver(false);
     gameSpeedRef.current = GAME_SPEED_INITIAL;
     lastShotRef.current = 0;
+    // Restart background music
+    if (soundRef.current) {
+      soundRef.current.playAsync();
+    }
   };
 
   return (
@@ -178,7 +229,10 @@ export default function App() {
           <Text style={styles.hudText}>Score: {score}</Text>
         </View>
 
-        <View style={[styles.player, { left: playerX, bottom: 20 }]} />
+        <Image
+          source={require("./assets/Screenshot 2025-11-20 at 6.31.30 PM.png")}
+          style={[styles.player, { left: playerX, bottom: 20, width: PLAYER_WIDTH, height: PLAYER_HEIGHT }]}
+        />
 
         {bullets.map((bullet) => (
           <View
@@ -191,11 +245,12 @@ export default function App() {
         ))}
 
         {enemies.map((enemy) => (
-          <View
+          <Image
             key={enemy.id}
+            source={require("./assets/stock-vector-cute-smile-green-pig-monster-in-pixel-art-style-with-isolated-background-2622428795.png")}
             style={[
               styles.enemy,
-              { left: enemy.x, top: enemy.y },
+              { left: enemy.x, top: enemy.y, width: ENEMY_WIDTH, height: ENEMY_HEIGHT },
             ]}
           />
         ))}
@@ -264,14 +319,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     width: PLAYER_WIDTH,
     height: PLAYER_HEIGHT,
-    backgroundColor: "#00ff88",
-    borderWidth: 2,
-    borderColor: "#00ff88",
-    borderRadius: 4,
-    shadowColor: "#00ff88",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 8,
+    resizeMode: "contain",
   },
 
   bullet: {
@@ -290,11 +338,11 @@ const styles = StyleSheet.create({
     position: "absolute",
     width: ENEMY_WIDTH,
     height: ENEMY_HEIGHT,
-    backgroundColor: "#ff3366",
+    backgroundColor: "#0a0e27",
     borderWidth: 2,
-    borderColor: "#ff1144",
+    borderColor: "#0a0e27",
     borderRadius: 4,
-    shadowColor: "#ff3366",
+    shadowColor: "#0a0e27",
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.8,
     shadowRadius: 8,
